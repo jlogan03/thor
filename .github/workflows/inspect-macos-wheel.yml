@@ -1,0 +1,59 @@
+name: inspect-macos-wheel
+
+on:
+  push:
+    branches:
+      - codex/macos-wheel-inspect-20260312
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: macos-15
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        python-version: "3.10"
+
+    - name: Build wheel
+      run: uv build --wheel --force-pep517 --out-dir dist
+
+    - name: Inspect wheel
+      run: |
+        mkdir -p inspection
+        python - <<'PY' > inspection/macos-15-wheel.txt
+        import pathlib
+        import zipfile
+
+        wheel = next(pathlib.Path("dist").glob("*.whl"))
+        print(f"wheel={wheel.name}")
+        with zipfile.ZipFile(wheel) as zf:
+            thor_members = [name for name in zf.namelist() if name.startswith("thor/")]
+            print("thor_members:")
+            for name in thor_members:
+                print(name)
+
+            print()
+            print("has_native_module=", any(name.startswith("thor/_thor") for name in thor_members))
+
+            for member in ("thor/__init__.py", "thor/biotsavart.py"):
+                print()
+                print(f"[{member}]")
+                print(zf.read(member).decode())
+        PY
+
+    - name: Commit inspection
+      run: |
+        git config user.name github-actions[bot]
+        git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+        git add inspection/macos-15-wheel.txt
+        git commit -m "Add macOS wheel inspection [skip ci]" || exit 0
+        git push
